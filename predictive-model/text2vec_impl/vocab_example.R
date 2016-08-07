@@ -26,3 +26,14 @@ find_matching_ngram <- function(n1, n2) {
     return(NULL);
   }
 }
+
+find_next_word <- function(sentence) {
+      
+}
+
+# Usage:
+#> find_matching_ngram("real", "things")
+#[1] "real_things_that"
+#> find_matching_ngram("the", "thing")
+#[1] "the_thing_is"
+
