@@ -103,7 +103,11 @@ The variable combined_doc contains the subsetted data for the three sources: twi
 
 ### Remove unusual characters
 
-The corpus contains many unusual characters, such as "control" characters, Latin characters, emoji's, etc. We will remove every character that is not an English character, whitespace or punctuation.
+The corpus contains many unusual characters, such as "control" characters, Latin characters, emoji's, etc. We read the files in as UTF-8 encoded. Text2vec cannot process these characters, and attempting to create a vocabulary from the raw text will result in errors. To faciliate our analysis, we will remove every character that is not an English character, whitespace or punctuation, by converting from UTF-8 to ASCII characters:
+
+```{r}
+combined_doc <- combined_doc <- iconv(combined_doc, 'utf-8', 'ascii', sub='')
+```
 
 ### Remove Unwanted Text
 
@@ -136,11 +140,6 @@ For this reason, we will also keep most punctuation, since contractions use apos
 ## The Code:
 
 ```{r clean-data, cache=FALSE}
-
-remove_strange_characters <- function(t) {
-  t <- gsub('[^[:punct:][:alnum:][\\s]]', '', t)
-  return(t)
-}
 
 clean_twitter <- function(t) {
   # Remove hashes
@@ -178,7 +177,6 @@ strip_profanity <- function(vector_list) {
 # Chain functions for tokenizing and cleaning:
 cleaning_tokenizer <- function(v) {
   v %>% 
-    remove_strange_characters %>%
     clean_twitter %>%
     removeNumbers %>%
     word_tokenizer %>%
