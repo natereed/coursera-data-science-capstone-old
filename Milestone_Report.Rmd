@@ -103,11 +103,7 @@ The variable combined_doc contains the subsetted data for the three sources: twi
 
 ### Remove unusual characters
 
-The corpus contains many unusual characters, such as "control" characters, Latin characters, emoji's, etc. We will remove every character that is not an English character, whitespace or punctuation:
-
-```{r}
-combined_doc <- gsub('[^[:punct:][:alnum:][\\s]]', '', combined_doc)
-```
+The corpus contains many unusual characters, such as "control" characters, Latin characters, emoji's, etc. We will remove every character that is not an English character, whitespace or punctuation.
 
 ### Remove Unwanted Text
 
@@ -141,8 +137,11 @@ For this reason, we will also keep most punctuation, since contractions use apos
 
 ```{r clean-data, cache=FALSE}
 
-gsub('[^[:punct:][:alnum:]]', '', combined_doc)
-     
+remove_strange_characters <- function(t) {
+  t <- gsub('[^[:punct:][:alnum:][\\s]]', '', t)
+  return(t)
+}
+
 clean_twitter <- function(t) {
   # Remove hashes
   t <- gsub('#', '', t)
@@ -179,6 +178,7 @@ strip_profanity <- function(vector_list) {
 # Chain functions for tokenizing and cleaning:
 cleaning_tokenizer <- function(v) {
   v %>% 
+    remove_strange_characters %>%
     clean_twitter %>%
     removeNumbers %>%
     word_tokenizer %>%
