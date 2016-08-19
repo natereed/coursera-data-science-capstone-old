@@ -37,3 +37,12 @@ find_next_word <- function(sentence) {
 #> find_matching_ngram("the", "thing")
 #[1] "the_thing_is"
 
+# Given the index of a matching term:
+vocab[[1]]$terms_counts[9999]
+vocab[[1]]$terms[9999]
+
+e <- new.env()
+with(e, 'age_of_cannon' <- 2)
+# Use hash table (environment)
+e[[names(e)[grep('^age_of_', names(e))]]]
+

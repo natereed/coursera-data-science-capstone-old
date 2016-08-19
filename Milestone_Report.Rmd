@@ -8,21 +8,24 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(cache=TRUE)
 ```
 
+Author: Nate Reed (nate@natereed.com)\
+Date: August 8, 2016
+
 ## Overview
 
 Coursera's Data Science Capstone project involves analyzing a text corpus from SwiftKey for the purpose of developing a method of predicting the next word in a sequence of text. 
 
 ## Recap
 
-The author was on hiatus for several months. I decided to re-do the initial cleaning and text processing work. The initial results, published originally in March 2016, were incomplete.
+This is a re-do of a report originally published on March 2016. The findings at that time were incomplete.
 
-Performance was a big problem in the initial attempt at developing a predictive model. The *tm* library was used for analysis, but it quickly became apparent that this library does not scale well for large data sets. Early attempts ended in frustration, as loading even a significant subset of the data gobbled up all available RAM and resulted in long running times. 
+Performance was a big problem in the initial attempt at developing a predictive model. The *tm* library was used for analysis, but it quickly became apparent that this library does not scale well for large data sets. Early attempts ended in frustration, as loading even a significant subset of the data used up all available RAM and resulted in long running times. 
 
-While it is possible to only use a small subset to build a model, the early version of the model was not very accurate. In order to get more accuracy, I want to process a larger subset of the corpus. There is a tradeoff between accuracy and space/time cost, so finding an efficient algorithm is important. My intuition is that a larger training data set will result in a more accurate model. This is something I will test systematically once I have successfully ingested the data and used it to build a predictive model.
+While it is possible to only use a small subset to build a model, the early version of the model was not very accurate. In order to get more accuracy, I want to process a larger subset of the corpus. There is a tradeoff between accuracy and space/time cost, so I focused my effort on finding a more efficient algorithm for processing the text. My intuition is that a larger training data set will result in a more accurate model. This is something I will test systematically once I have successfully ingested the data and used it to build a predictive model.
 
 I researched several options, from using large instances on EC2, to trying different libraries, such as distributed TM (which runs on a Hadoop cluster), quanteda (a fast text processing library) and text2vec. Ultimately, I chose to work with text2vec because it was engineered to process a large corpus while being memory-efficient. The API is also very use to use.
 
-We will also use some functions from the *tm* library for pre-processing.
+We will also use some functions from the *tm* library for pre-processing, and dplyr for analyzing the vocabularies.
 
 ## Load Libraries
 
@@ -31,15 +34,20 @@ library(curl)
 library(text2vec)
 library(tm)
 library(dplyr)
+library(ggplot2)
 ```
 
 ## Get the Data
 
 ```{r, eval=FALSE}
-#setwd( file.path("C:/", "Users", "Owner", "Projects", "Coursera", "Data Science Capstone"))
+setwd( file.path("C:/", "Users", "Owner", "Projects", "Coursera", "Data Science Capstone"))
 
-#download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip", destfile="Coursera-SwiftKey.zip")
-#unzip(file.path("C:/", "Users", "Owner", "Projects", "Coursera", "Data Science Capstone", "Coursera-SwiftKey.zip"))
+# SwiftKey data
+download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip", destfile="Coursera-SwiftKey.zip")
+unzip(file.path("C:/", "Users", "Owner", "Projects", "Coursera", "Data Science Capstone", "Coursera-SwiftKey.zip"))
+
+# Get list of profane words
+download.file(url="http://www.bannedwordlist.com/lists/swearWords.txt", destfile="swearwords.txt", method="curl")
 ```
 
 ## Data Statistics
@@ -73,7 +81,6 @@ stats
 We see that blogs are the largest source of data overall, although twitter has more lines, owing to the limit of 40 characters for tweets.
 
 ```{r}
-library(ggplot2)
 bp <- ggplot(stats, aes(x="", y=gb, fill=name)) + geom_bar(width=1, stat="identity")
 pie <- bp + coord_polar("y", start=0)
 pie
@@ -106,7 +113,7 @@ The variable combined_doc contains the subsetted data for the three sources: twi
 The corpus contains many unusual characters, such as "control" characters, Latin characters, emoji's, etc. We read the files in as UTF-8 encoded. Text2vec cannot process these characters, and attempting to create a vocabulary from the raw text will result in errors. To faciliate our analysis, we will remove every character that is not an English character, whitespace or punctuation, by converting from UTF-8 to ASCII characters:
 
 ```{r}
-combined_doc <- combined_doc <- iconv(combined_doc, 'utf-8', 'ascii', sub='')
+combined_doc <- iconv(combined_doc, 'utf-8', 'ascii', sub='')
 ```
 
 ### Remove Unwanted Text
@@ -131,15 +138,17 @@ Something to consider is whether to stem words. The root of the plural "cats," f
 
 I decided not to stem words, as this would result in non-sensical or grammatically incorrect sequences such as "Yesterday we argu" or "We had agree on a solution."
 
-## Contractions and Stop Words
+### Contractions and Stop Words
 
 Similarly, I decided to keep stop words and contractions. Stop words are very commonly used. Contractions, such as "can't" and "didn't", are also common, and we want to be able to predict words based on their relative frequencies in the corpus.
 
 For this reason, we will also keep most punctuation, since contractions use apostrophes. Other punctuation, such as hyphens, might be meaningful. I will rely on text2vec to remove punctuation that marks the end of sentences, or separates compound sentences (periods and commas), as part of the tokenization process.
 
-## The Code:
+### The Cleaning Code:
 
-```{r clean-data, cache=FALSE}
+```{r clean-data, cache=FALSE, warning=FALSE}
+
+swear_words <- readLines("swearwords.txt")
 
 clean_twitter <- function(t) {
   # Remove hashes
@@ -160,10 +169,6 @@ clean_twitter <- function(t) {
   t <- gsub('\\bu\\b', 'you', t)
   return(t)
 }
-
-# Get swearwords
-con <- curl(url="http://www.bannedwordlist.com/lists/swearWords.txt")
-swear_words <- readLines(con)
 
 strip_profanity_from_entry <- function(v) {
   expr <- do.call(paste, c(as.list(swear_words), sep="|"))
@@ -186,16 +191,20 @@ cleaning_tokenizer <- function(v) {
 
 # Analyzing term frequencies
 
-Now that we have a function to clean up the vocabulary, we can analyze the top terms. Note that iterators cannot be reused. We have to create a new iterator each time we build the vocabulary:
+Now that we have a function to clean up the vocabulary, we can create vocabularies and analyze the top terms for each vocabulary. We'll create a vocabulary for each n from 1 through 4, where n is the number of words in an n-gram (the smallest unit of the vocabulary):
 
-## Plotting code
-
+## Plotting function
 ```{r define-plotting-functions, cache=FALSE}
-plot_terms <- function(top_terms) {
-  p <- ggplot(top_terms, aes(x=factor(terms), y=terms_counts))
-  return(p + geom_bar(stat="identity") + coord_flip())
+plot_terms <- function(top_terms, title) {
+  p <- ggplot(top_terms, aes(x=factor(terms), y=terms_counts)) + labs(title=title, x="term", y="term count")
+  return(p + geom_bar(stat="identity") + coord_flip() + theme_bw())
 }
 
+```
+
+## Number of top terms to analyze for each vocabulary
+```{r}
+num_top_ranking_terms <- 20
 ```
 
 ## Unigrams
@@ -208,8 +217,15 @@ it <- itoken(combined_doc,
 
 # Create vocab from iterator
 v <- create_vocabulary(it, ngram=c(1L, 1L));
-top_terms <- arrange(v$vocab, desc(terms_counts))[1:20,]
-plot_terms(top_terms)
+top_terms <- arrange(v$vocab, desc(terms_counts))[1:num_top_ranking_terms,]
+plot_terms(top_terms, "Unigram Frequencies")
+
+# Coverage info
+top_terms_count1 <- sum(top_terms$terms_counts)
+vocab_terms_count1 <- sum(v$vocab$terms_counts)
+num_unique_terms1 <-length(v$vocab$terms)
+
+rm(v)
 ```
 
 ## Bi-grams
@@ -218,10 +234,15 @@ it <- itoken(combined_doc,
             preprocess_function = tolower, 
             tokenizer = cleaning_tokenizer);
 
-# Create vocab from iterator
 v <- create_vocabulary(it, ngram=c(2L, 2L));
-top_terms <- arrange(v$vocab, desc(terms_counts))[1:20,]
-plot_terms(top_terms)
+top_terms <- arrange(v$vocab, desc(terms_counts))[1:num_top_ranking_terms,]
+plot_terms(top_terms, "Bi-Gram Frequencies")
+
+top_terms_count2 <- sum(top_terms$terms_counts)
+vocab_terms_count2 <- sum(v$vocab$terms_counts)
+num_unique_terms2 <-length(v$vocab$terms)
+
+rm(v)
 ```
 
 ## Tri-grams
@@ -230,8 +251,73 @@ it <- itoken(combined_doc,
             preprocess_function = tolower, 
             tokenizer = cleaning_tokenizer);
 
-# Create vocab from iterator
 v <- create_vocabulary(it, ngram=c(3L, 3L));
-top_terms <- arrange(v$vocab, desc(terms_counts))[1:20,]
-plot_terms(top_terms)
+top_terms <- arrange(v$vocab, desc(terms_counts))[1:num_top_ranking_terms,]
+plot_terms(top_terms, "Tri-Gram Frequencies")
+
+top_terms_count3 <- sum(top_terms$terms_counts)
+vocab_terms_count3 <- sum(v$vocab$terms_counts)
+num_unique_terms3 <-length(v$vocab$terms)
+
+rm(v)
 ```
+
+## 4-Grams
+```{r}
+it <- itoken(combined_doc, 
+            preprocess_function = tolower, 
+            tokenizer = cleaning_tokenizer);
+
+v <- create_vocabulary(it, ngram=c(4L, 4L));
+top_terms <- arrange(v$vocab, desc(terms_counts))[1:num_top_ranking_terms,]
+plot_terms(top_terms, "4-Gram Frequencies")
+
+top_terms_count4 <- sum(top_terms$terms_counts)
+vocab_terms_count4 <- sum(v$vocab$terms_counts)
+num_unique_terms4 <-length(v$vocab$terms)
+
+rm(v)
+```
+
+## Coverage Analysis
+
+Understanding the frequencies of terms in the vocabulary could help us develop a model for prediction.
+
+What percentage of the overall vocabulary do the top n-grams represent? We can answer this question in a couple of ways: by term count (that is, how many times the words appear in the corpus), and by unique count:
+
+```{r}
+coverage_stats <- data.frame(coverage_by_term_count = c(top_terms_count1 / vocab_terms_count1,
+                                                        top_terms_count2 / vocab_terms_count2,
+                                                        top_terms_count3 / vocab_terms_count3,
+                                                        top_terms_count4 / vocab_terms_count4),
+                             coverage_by_unique_count = c(num_top_ranking_terms / num_unique_terms1,
+                                                          num_top_ranking_terms / num_unique_terms2,
+                                                          num_top_ranking_terms / num_unique_terms3,
+                                                          num_top_ranking_terms / num_unique_terms4
+                                                          )
+                             )
+coverage_stats
+```
+
+We see that the coverage of the corpus -- by term count and count of unique n-grams -- declines as n increases. The top 20 unigrams represent 28% of the total occurances of unigrams in the vocabulary, while the top 20 bi-grams only cover 3% of the bi-gram term counts, and the top tri-grams cover less than 1% of the tri-grams that appear in the corpus.
+
+```{r, warning=FALSE}
+ggplot(coverage_stats, aes(x=seq(1,4), y=coverage_by_term_count*100)) + labs(title="Coverage", x="n", y="% of Term Counts") + geom_point() + geom_smooth()
+```
+
+This makes sense when we consider the number of unique terms, which increases as n increases.
+
+```{r, warning=FALSE}
+df <- data.frame(n=seq(1,4), num_terms=c(num_unique_terms1,
+                                         num_unique_terms2,
+                                         num_unique_terms3,
+                                         num_unique_terms4))
+ggplot(df, aes(x=n, y=num_terms)) + labs(title="Size of Vocabulary", x="n", y="Number of terms") + geom_point() + geom_smooth()
+```
+
+### Conclusion
+
+We conclude that the longer the sequence of text, the less frequently we see it in the corpus. 
+
+
+
