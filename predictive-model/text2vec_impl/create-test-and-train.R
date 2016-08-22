@@ -79,7 +79,7 @@ it <- itoken(combined_doc,
 # Create vocab from iterator
 print("Initializing vocabulary....")
 t <- proc.time()
-vocab <- create_vocabulary(it, ngram=c(1L, 8L));
+vocab <- create_vocabulary(it, ngram=c(1L, 4L));
 proc.time() - t
 
 # Store terms and term counts on disk
@@ -97,6 +97,6 @@ train_ind <- sample(nrow(vocab_dt),
 train_subset <- vocab_dt[train_ind,]
 test_subset <- vocab_dt[-train_ind]
 
-library(feather)
-write_feather(train_subset, "train.feather")
-write_feather(test_subset, "test.feather")
+#library(feather)
+#write_feather(train_subset, "train.feather")
+#write_feather(test_subset, "test.feather")

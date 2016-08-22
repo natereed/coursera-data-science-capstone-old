@@ -1,23 +1,45 @@
-library(feather)
+get_regex <- function(input) {
 
-predict_next_word <- function(input, n) {
-  tokens <- strsplit(input, "_")[[1]]
-  start_index <- (length(tokens) - n + 1)
-  end_index <- length(tokens)
-  begin_seq <- tokens[start_index : length(tokens)]
-  
-  # Get mtaches for higher order n-gram given begin_seq
-  
+    return(paste(paste("^", input, sep=""), "_", sep=""))
 }
 
-vocab_dt <- read_feather("vocab.feather")
+count_n <- function(term) {
+  return(length(strsplit(term, '_')[[1]]))
+}
 
-# Example text
+filter_matches <- function(n, matching_terms) {
+  matching_terms <- mutate(matching_terms, n=length(strsplit(terms, '_')[[1]]))
+  match <- arrange(matching_terms, n, desc(term_count))$terms[1]
+  return(match)
+}
 
-actual_input <- "It's hot as fuck in this apartment"
+find_matching_ngrams <- function(vocab, input) {
+  expr <- get_regex(input)
+  print(expr)
+  matching_terms <- vocab[grep(expr, vocab$terms)]
+  if (length(matching_terms) > 0) {
+    print("Found matches")
+    #print(matching_terms$terms)
+    return(filter_matches(count_n(input), 
+                          matching_terms))
+  } else {
+    return(NULL);
+  }
+}
 
-# TODO: We need to standardize test strings using the same rules for cleaning
-# Use the text2vec package to clean these and dump them to a file?
-test_input <- "it's_hot_as_fuck_in_this"
+#library(feather)
+#train_dt <- read_feather("train.feather")
 
+test_obs <- test_subset[sample(nrow(test_subset), 1)]
+
+for (index in 1:nrow(test_obs)) {
+  term <- test_obs[index,]$terms
+  print(paste("Term: ", term))
+  t = proc.time()
+  
+  val <- find_matching_ngrams(vocab_dt, term)
+  print(paste("Prediction: ", val))
+  time <- proc.time() - t
+  print(time[['elapsed']])
+}
 
